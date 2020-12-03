@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:location/location.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
@@ -184,23 +185,50 @@ class _MapPageState extends State<MapPage> {
 
   Completer<GoogleMapController> _controller = Completer();
 
-  static final CameraPosition _kGooglePlex = CameraPosition(
-    target: LatLng(37.42796133580664, -122.085749655962),
-    zoom: 14.4746,
+  StreamSubscription positionStream;
+
+  Position _position;
+
+  static final CameraPosition _initialPosition = CameraPosition(
+    target: LatLng(53.42796133580664, 50.085749655962),
+    zoom: 15.0,
   );
 
-  static final CameraPosition _kLake = CameraPosition(
-      bearing: 192.8334901395799,
-      target: LatLng(37.43296265331129, -122.08832357078792),
-      tilt: 59.440717697143555,
-      zoom: 19.151926040649414);
+  Set<Polyline> polylineList = Set<Polyline>();
+
+  List<LatLng> points = List();
 
   bool askingPermission = false;
 
   @override
   void initState() {
-    this.getLocationPermission();
     super.initState();
+    this.getLocationPermission();
+    _position = Position();
+    updateLocation();
+    positionStream = Geolocator.getPositionStream().listen((Position position) {
+      setState(() {
+        _position = position;
+        _updateCamera();
+        points.add(LatLng(_position.latitude, _position.longitude));
+        polylineList = {
+          new Polyline(
+            polylineId: PolylineId(_position.toString()),
+            color: Colors.amber,
+            width: 4,
+            points: points,
+          )
+        };
+      });
+    });
+  }
+
+  void updateLocation() async {
+    Position newPosition = await Geolocator.getCurrentPosition().timeout(new Duration(seconds: 5));
+
+    setState(() {
+      _position = newPosition;
+    });
   }
 
   Future<bool> getLocationPermission() async {
@@ -228,11 +256,20 @@ class _MapPageState extends State<MapPage> {
     return result;
   }
 
+  Future<void> _updateCamera() async {
+    final GoogleMapController controller = await _controller.future;
+    controller.animateCamera(CameraUpdate.newCameraPosition(new CameraPosition(target: LatLng(_position.latitude, _position.longitude), zoom: 15.0)));
+    setState(() {
+
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         leading: new IconButton(icon: new Icon(Icons.arrow_back_rounded), onPressed: () {
+          positionStream.pause();
           Navigator.pop(context);
           Navigator.push(
             context,
@@ -242,27 +279,17 @@ class _MapPageState extends State<MapPage> {
         title: Text(AppLocalizations.of(context).translate('map')),
       ),
       body: GoogleMap(
-        mapType: MapType.hybrid,
-        initialCameraPosition: _kGooglePlex,
+        mapType: MapType.normal,
+        myLocationEnabled: true,
+        polylines: polylineList,
+        initialCameraPosition: _initialPosition,
         onMapCreated: (GoogleMapController controller) {
           _controller.complete(controller);
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _goToTheLake,
-        label: Text('To the lake!'),
-        icon: Icon(Icons.directions_boat),
-      ),
     );
   }
 
-  Future<void> _goToTheLake() async {
-    final GoogleMapController controller = await _controller.future;
-    controller.animateCamera(CameraUpdate.newCameraPosition(_kLake));
-    setState(() {
-
-    });
-  }
 }
 
 class Information extends StatelessWidget {
